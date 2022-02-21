@@ -1,0 +1,13 @@
+name: beltShiny
+title: beltShiny
+username:
+account: markean
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 5696535
+bundleId: 5600057
+url: https://markean.shinyapps.io/beltShiny/
+when: 1645399714.47258
+lastSyncTime: 1645399714.47262
+asMultiple: FALSE
+asStatic: FALSE
