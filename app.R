@@ -71,7 +71,6 @@ server <- function(input, output) {
     x <- rnorm(n(), mean = theta(), sd = sigma())
     # generate grid
     theta_grid <- seq(grid()[1], grid()[2], length.out = 1000)
-
     # posterior mean
     posterior_mean <-
       (theta0() / sigma0()^2 + sum(x) / sigma()^2) /
