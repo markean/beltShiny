@@ -64,6 +64,7 @@ server <- function(input, output) {
     }
   )
   # posterior density plot (discrete, normalized)
+  #
   output$plot1 <- renderPlot({
     # seed for sampling
     set.seed(seed())
