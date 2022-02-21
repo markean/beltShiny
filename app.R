@@ -77,7 +77,6 @@ server <- function(input, output) {
       (1 / sigma0()^2 + n() / sigma()^2)
     # posterior sd
     posterior_sd <- (1 / sigma0()^2 + n() / sigma()^2)^(-1 / 2)
-
     # weights
     if (beta() == "1 / m") {
       beta <- 1 / m()
