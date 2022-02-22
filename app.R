@@ -1,7 +1,6 @@
 library(shiny)
 library(melt)
 library(ggplot2)
-beta <- c("1 / m", "m / n", "1")
 
 # Define UI for application that draws a histogram
 ui <- fluidPage(
@@ -18,14 +17,16 @@ ui <- fluidPage(
                   value = c(-1, 1), min = -4, max = 4, step = 0.05),
       numericInput("seed", "Seed",
                    value = 1, min = 1, max = .Machine$integer.max),
-      numericInput("n", "n: sample size (10 <= n <= 1000)", value = 100,
-                   min = 10, max = 1000),
-      numericInput("m", "m: pseudo sample size (2 <= m <= 1000)",
-                   value = 2, min = 10, max = 1000),
+      sliderInput("n", "n: sample size", value = 100,
+                   min = 10, max = 500, step = 10),
+      sliderInput("m", "m: pseudo sample size",
+                   value = 10, min = 10, max = 500, step = 10),
       selectInput("beta", "beta (fractional weight of one pseudo observation)",
-                  beta),
+                  choices = c("1 / m", "m / n", "1")),
       sliderInput("plotlim", "Plot x-axis range",
                   value = c(-1, 1), min = -4, max = 4, round = F, step = 0.05),
+      selectInput("method", "Pseudo sample method:",
+                  choices = c("qnorm" = "qnorm", "rnorm" = "rnorm")),
       checkboxGroupInput("wel", "Weighted EL",
                          choices = c("wel1" = "wel1", "wel2" = "wel2",
                                      "wel3" = "wel3", "wel4" = "wel4"),
@@ -53,6 +54,7 @@ server <- function(input, output) {
   # parameters 3
   seed <- reactive(input$seed)
   beta <- reactive(input$beta)
+  method <- reactive(input$method)
   wel <- reactive(input$wel)
 
   # summary statistics
@@ -92,8 +94,7 @@ server <- function(input, output) {
       dnorm(par, mean = posterior_mean, sd = posterior_sd, log = T)
     }
     EL_logLR <- function(par) {
-      z <- el_mean(par, x, rep(1, n()),
-                   list(threshold = 1e+10, maxit = 100, abstol = 1e-06))$optim
+      z <- el_mean(par, x, control = list(threshold = 1e+10))$optim
       if (!isTRUE(z$convergence)) {
         return(NA)
       }
@@ -101,12 +102,17 @@ server <- function(input, output) {
     }
 
     pseudo_sample <- function(par) {
+      if (method() == "qnorm") {
+        pseudo_x <- par + qnorm(1:m() / (m() + 1))
+      }
+    } else {
       pseudo_x <- rnorm(m(), mean = par, sd = sigma0())
       while (par <= range(pseudo_x)[1] || par >= range(pseudo_x)[2]) {
         pseudo_x <- rnorm(m(), mean = par, sd = sigma0())
       }
-      pseudo_x
     }
+    pseudo_x
+  }
     # logLR
     logLR <- function(par) {
       pseudo_x <- pseudo_sample(par)
@@ -211,17 +217,21 @@ server <- function(input, output) {
     w <- c(rep(1, n()), rep(beta, m()))
 
     EL_logLR <- function(par) {
-      z <- el_mean(par, x, rep(1, n()),
-                   list(threshold = 1e+10, maxit = 100, abstol = 1e-06))$optim
+      z <- el_mean(par, x, control = list(threshold = 1e+10))$optim
       if (!isTRUE(z$convergence)) {
         return(NA)
       }
       z$logLR
     }
     pseudo_sample <- function(par) {
-      pseudo_x <- rnorm(m(), mean = par, sd = sigma0())
-      while (par <= range(pseudo_x)[1] || par >= range(pseudo_x)[2]) {
+      if (method() == "qnorm") {
+        pseudo_x <- par + qnorm(1:m() / (m() + 1))
+        }
+      } else {
         pseudo_x <- rnorm(m(), mean = par, sd = sigma0())
+        while (par <= range(pseudo_x)[1] || par >= range(pseudo_x)[2]) {
+          pseudo_x <- rnorm(m(), mean = par, sd = sigma0())
+        }
       }
       pseudo_x
     }
@@ -251,7 +261,6 @@ server <- function(input, output) {
       el_mean(par, data_f, w, list(threshold = 1e+10, maxit = 100,
                                    abstol = 1e-06))$optim$logWLR
     }
-
     # EL density (discrete, normalized)
     EL_log_d <- sapply(theta_grid, EL_logLR)
     EL_d <- exp(EL_log_d) / sum(exp(EL_log_d), na.rm = T)
