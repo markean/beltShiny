@@ -3,5 +3,5 @@
 .RData
 .Ruserdata
 .Rprofile
-renv
-rsconnect
+renv/
+rsconnect/
