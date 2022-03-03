@@ -1,10 +1,49 @@
 library(shiny)
+library(tidyverse)
+library(plotly)
 library(melt)
+library(Matrix)
 library(ggplot2)
 library(ggsci)
 ui <- fluidPage(
   titlePanel("Bayesian Weighted EL with Fractional Pseudo Observations (Normal-Normal Model)"),
   tabsetPanel(
+    tabPanel("SLR", fluid = TRUE,
+             sidebarLayout(
+               sidebarPanel(
+                 sliderInput("b0", "beta0",
+                             value = 1, min = ,-3, max = 3, step = 0.1),
+                 sliderInput("b1", "beta1",
+                             value = 1, min = -3, max = 3, step = 0.1),
+                 sliderInput("theta_lm", "x mean",
+                             value = 0, min = ,-3, max = 3, step = 0.1),
+                 sliderInput("sigma_lm", "x sd",
+                             value = 1, min = 0.5, max = 3, step = 0.1),
+                 sliderInput("sigma_error_lm", "error sd",
+                             value = 1, min = 0.5, max = 3, step = 0.1),
+                 sliderInput("grid_lm", "grid range",
+                             value = 1, min = 0.1, max = 5, step = 0.1),
+                 sliderInput("logLR_threshold_lm", "logLR threshold",
+                             value = -10, min = -50, max = -1, step = 1),
+                 numericInput("seed_lm", "seed",
+                              value = 1, min = 1, max = .Machine$integer.max),
+                 sliderInput("n_lm", "n: sample size", value = 30,
+                             min = 10, max = 100, step = 1),
+                 sliderInput("m_lm", "m: pseudo sample size",
+                             value = 2, min = 2, max = 20, step = 1),
+                 selectInput("wel", "weighted EL to use",
+                                    choices = c("WEL1 (pseudo y)" = "wel1",
+                                                "WEL2 (pseudo g)" = "wel2"),
+                                    selected = c("wel1"))),
+               mainPanel(
+                 textOutput("summary_lm"),
+                 verbatimTextOutput("code_lm"),
+                 plotlyOutput("plot_lm_EL"),
+                 plotlyOutput("plot_lm_WEL"),
+                 plotOutput("plot_lm_profile")
+               )
+             )
+    ),
     tabPanel("LR and Posterior Density", fluid = TRUE,
              sidebarLayout(
                sidebarPanel(
@@ -87,6 +126,30 @@ ui <- fluidPage(
 
 server <- function(input, output) {
   options(warn = -1)
+  # parameters for lm
+  b0 <- reactive(input$b0)
+  b1 <- reactive(input$b1)
+  theta_lm <- reactive(input$theta_lm)
+  sigma_lm <- reactive(input$sigma_lm)
+  sigma_error_lm <- reactive(input$sigma_error_lm)
+  n_lm <- reactive(input$n_lm)
+  m_lm <- reactive(input$m_lm)
+  grid_lm <- reactive(input$grid_lm)
+  logLR_threshold_lm <- reactive(input$logLR_threshold_lm)
+  seed_lm <- reactive(input$seed_lm)
+
+  # summary statistics
+  output$summary_lm <- renderText("LS estimates")
+  output$code_lm <- renderPrint({
+    # seed for sampling
+    set.seed(seed_lm())
+    # simulate data
+    x <- rnorm(n_lm(), mean = theta_lm(), sd = sigma_lm())
+    y <- b0() + b1() * x + rnorm(n_lm(), sd = sigma_error_lm())
+    # extract LS estimates
+    coef(lm(y ~ x, data.frame(x, y)))
+  })
+
   # parameters for densities
   theta <- reactive(input$theta)
   sigma <- reactive(input$sigma)
@@ -130,6 +193,208 @@ server <- function(input, output) {
    }
   )
 
+  # EL lm plot
+  output$plot_lm_EL <- renderPlotly({
+    # seed for sampling
+    set.seed(seed_lm())
+    # simulate data
+    x <- rnorm(n_lm(), mean = theta_lm(), sd = sigma_lm())
+    y <- b0() + b1() * x + rnorm(n_lm(), sd = sigma_error_lm())
+    # extract LS estimates
+    fit <- el_lm(y ~ x, data.frame(x, y))
+    est <- fit$coefficients
+
+    grid <- tibble(
+      x = seq(est[1] - grid_lm() / 2, est[1] + grid_lm() / 2, length.out = 50),
+      y = seq(est[2] - grid_lm() / 2, est[2] + grid_lm() / 2, length.out = 50)
+    )
+    # EL
+    z <- matrix(NA, nrow = nrow(grid), ncol = nrow(grid))
+    for (i in seq_len(nrow(z))) {
+      for (j in seq_len(nrow(z))) {
+        z[i, j] <- el_test2(fit, c(grid$x[i], grid$y[j]),
+                            control = list(threshold = 1e+10))$optim$logLR
+      }
+    }
+    plot_ly(x = ~grid$x, y = ~grid$y, z = ~t(z)) %>%
+      layout(title = "EL",
+             scene = list(
+               xaxis = list(title = "b0"),
+               yaxis = list(title = "b1"),
+               zaxis = list(title = "logLR", range = c(logLR_threshold_lm(), 0))
+             )) %>%
+      add_surface()
+  })
+  # WEL lm plot
+  output$plot_lm_WEL <- renderPlotly({
+    # seed for sampling
+    set.seed(seed_lm())
+    # simulate data
+    x <- rnorm(n_lm(), mean = theta_lm(), sd = sigma_lm())
+    y <- b0() + b1() * x + rnorm(n_lm(), sd = sigma_error_lm())
+    # extract LS estimates
+    fit <- el_lm(y ~ x, data.frame(x, y))
+    est <- fit$coefficients
+
+    beta1 <- 1 / (m_lm() * n_lm())
+    beta2 <- 1 / (m_lm() * length(est))
+    w1 <- c(rep(1, n_lm()), rep(beta1, m_lm() * n_lm()))
+    w2 <- c(rep(1, n_lm()), rep(beta2, m_lm() * length(est)))
+
+    X <- model.matrix(lm(y ~ x, data.frame(x, y)))
+    Y <- as.matrix(lm(y ~ x, data.frame(x, y))$model$y)
+    g_lm <- function(y, x, par) x * as.vector(y - x %*% par)
+
+    grid <- tibble(
+      x = seq(est[1] - grid_lm() / 2, est[1] + grid_lm() / 2, length.out = 50),
+      y = seq(est[2] - grid_lm() / 2, est[2] + grid_lm() / 2, length.out = 50))
+    # WEL 1 pseudo y
+    if ("wel1" %in% wel()) {
+      # set.seed(seed())
+      z2 <- matrix(NA, nrow = nrow(grid), ncol = nrow(grid))
+      for (i in seq_len(nrow(z2))) {
+        for (j in seq_len(nrow(z2))) {
+          g <- g_lm(Y, X, c(grid$x[i], grid$y[j]))
+          e_pseudo <- qnorm(seq_len(m_lm()) / (m_lm() + 1))
+          g_pseudo <- X[rep(seq_len(n_lm()), each = m_lm()), ] * e_pseudo
+          pp <- el_eval(rbind(g, g_pseudo), w1,
+                        list(threshold = 1e+10))$optim$log.prob
+          p1 <- pp[seq_len(n_lm())]
+          p2 <- pp[-seq_len(n_lm())]
+          z2[i, j] <-
+            sum(p1) + n_lm() * (log(n_lm() + 1) - log(length(w1)))
+        }
+      }
+      plot <- plot_ly(x = ~grid$x, y = ~grid$y, z = ~t(z2)) %>%
+        layout(title = "WEL (peudo y)",
+               scene = list(
+                 xaxis = list(title = "b0"),
+                 yaxis = list(title = "b1"),
+                 zaxis = list(title = "logLR",
+                              range = c(logLR_threshold_lm(), 0))
+               )) %>%
+        add_surface()
+    } else {
+      # set.seed(seed())
+      z2 <- matrix(NA, nrow = nrow(grid), ncol = nrow(grid))
+      for (i in seq_len(nrow(z2))) {
+        for (j in seq_len(nrow(z2))) {
+          g <- g_lm(Y, X, c(grid$x[i], grid$y[j]))
+          g_sd <- sqrt(diag(crossprod(g) / nrow(g)))
+          g_pseudo <- as.matrix(
+            bdiag(lapply(g_sd, function(i) qnorm(seq_len(m_lm()) / (m_lm() + 1),
+                                                 sd = i))))
+          pp <- el_eval(rbind(g, g_pseudo), w2,
+                        list(threshold = 1e+10))$optim$log.prob
+          p1 <- pp[seq_len(n_lm())]
+          p2 <- pp[-seq_len(n_lm())]
+          z2[i, j] <-
+            sum(p1) + n_lm() * (log(n_lm() + 1) - log(length(w2)))
+        }
+      }
+      plot <- plot_ly(x = ~grid$x, y = ~grid$y, z = ~t(z2)) %>%
+        layout(title = "WEL (pseudo g)",
+               scene = list(
+                 xaxis = list(title = "b0"),
+                 yaxis = list(title = "b1"),
+                 zaxis = list(title = "logLR",
+                              range = c(logLR_threshold_lm(), 0))
+               )) %>%
+        add_surface()
+    }
+    plot
+  })
+  # WEL lm plot
+  output$plot_lm_profile <- renderPlot({
+    # seed for sampling
+    set.seed(seed_lm())
+    # simulate data
+    x <- rnorm(n_lm(), mean = theta_lm(), sd = sigma_lm())
+    y <- b0() + b1() * x + rnorm(n_lm(), sd = sigma_error_lm())
+    # extract LS estimates
+    fit <- el_lm(y ~ x, data.frame(x, y))
+    est <- fit$coefficients
+
+    beta1 <- 1 / (m_lm() * n_lm())
+    beta2 <- 1 / (m_lm() * length(est))
+    w1 <- c(rep(1, n_lm()), rep(beta1, m_lm() * n_lm()))
+    w2 <- c(rep(1, n_lm()), rep(beta2, m_lm() * length(est)))
+
+    X <- model.matrix(lm(y ~ x, data.frame(x, y)))
+    Y <- as.matrix(lm(y ~ x, data.frame(x, y))$model$y)
+    g_lm <- function(y, x, par) x * as.vector(y - x %*% par)
+
+    # generate grid
+    grid <- seq(est[2] - grid_lm() / 2, est[2] + grid_lm() / 2, length.out = 50)
+    EL_logLR <- function(par) {
+      # el_test2(fit, c(est[1], par), list(threshold = 1e+10))$optim$logLR
+      z <- el_test2(fit, c(est[1], par), list(threshold = 1e+10))$optim
+      if (!isTRUE(z$convergence)) {
+        return(NA)
+      }
+      z$logLR
+    }
+    WEL_pseudo_y_logLR <- function(par) {
+      g <- g_lm(Y, X, c(est[1], par))
+      e_pseudo <- qnorm(seq_len(m_lm()) / (m_lm() + 1))
+      g_pseudo <- X[rep(seq_len(n_lm()), each = m_lm()), ] * e_pseudo
+      pp <- el_eval(rbind(g, g_pseudo), w1,
+                    list(threshold = 1e+10))$optim$log.prob
+      p1 <- pp[seq_len(n_lm())]
+      p2 <- pp[-seq_len(n_lm())]
+      sum(p1) + n_lm() * (log(n_lm() + 1) - log(length(w1)))
+    }
+    WEL_pseudo_g_logLR <- function(par) {
+      g <- g_lm(Y, X, c(est[1], par))
+      g_sd <- sqrt(diag(crossprod(g) / nrow(g)))
+      g_pseudo <- as.matrix(
+        bdiag(lapply(g_sd, function(i) qnorm(seq_len(m_lm()) / (m_lm() + 1),
+                                             sd = i))))
+
+      pp <- el_eval(rbind(g, g_pseudo), w2,
+                    list(threshold = 1e+10))$optim$log.prob
+      p1 <- pp[seq_len(n_lm())]
+      p2 <- pp[-seq_len(n_lm())]
+      sum(p1) + n_lm() * (log(n_lm() + 1) - log(length(w2)))
+    }
+    # EL logLR
+    EL_logLR <- sapply(grid, EL_logLR)
+    df_EL <- data.frame(x = grid, y = EL_logLR, type = "EL")
+    dt <- df_EL
+    # WEL1 density
+    if ("wel1" %in% wel()) {
+      # set.seed(seed())
+      WEL1_logLR <- sapply(grid, WEL_pseudo_y_logLR)
+      df_WEL1 <- data.frame(x = grid, y = WEL1_logLR, type = "WEL1")
+      dt <- rbind(dt, df_WEL1)
+    }
+    # WEL2 density
+    if ("wel2" %in% wel()) {
+      # set.seed(seed())
+      WEL2_logLR <- sapply(grid, WEL_pseudo_g_logLR)
+      df_WEL2 <- data.frame(x = grid, y = WEL2_logLR, type = "WEL2")
+      dt <- rbind(dt, df_WEL2)
+    }
+
+    ggplot(dt, aes(x, y, color = type)) +
+      geom_path(alpha = 0.5, na.rm = TRUE) +
+      labs(x = "b1", y = "logLR",
+           title = "profile logLR (b0 fixed at the LS estimate)") +
+      geom_vline(xintercept = est[2], linetype = "dashed", alpha = 0.5) +
+      # xlim(grid[1], grid[2]) +
+      theme(axis.text = element_text(size = 12, color = "black"),
+            axis.title = element_text(size = 12),
+            panel.background = element_blank(),
+            panel.border = element_rect(fill = NA, size = 1),
+            panel.grid = element_blank(),
+            legend.text = element_text(size = 10, color = "black"),
+            legend.background = element_rect(fill = alpha("white", 0)),
+            legend.key = element_rect(fill = alpha("white", 1)),
+            legend.title = element_blank()) +
+      scale_color_npg()
+  })
+
+
   # LR plot
   output$plot1 <- renderPlot({
     # seed for sampling
@@ -149,7 +414,8 @@ server <- function(input, output) {
     w <- c(rep(1, n()), rep(beta, m()))
 
     EL_logLR <- function(par) {
-      z <- el_mean(par, x, control = list(threshold = 1e+10))$optim
+      z <- el_mean(par, x, control = list(abstol = 1e-05,
+                                          threshold = 1e+10))$optim
       if (!isTRUE(z$convergence)) {
         return(NA)
       }
@@ -174,9 +440,20 @@ server <- function(input, output) {
       data_f <- c(x, pseudo_x)
       # sum(el_mean(par, data_f, w, list(threshold = 1e+10, maxit = 100,
       #                                  abstol = 1e-06))$optim$log.wprob[1:n()])
-      sum(el_mean(par, data_f, w, list(threshold = 1e+10, maxit = 100,
-                                       abstol = 1e-06))$optim$log.prob[1:n()]) +
-        n() * (log(n()) - log(n() + m()))
+      pp <- el_mean(par, data_f, w, list(threshold = 1e+10, maxit = 100,
+                                         abstol = 1e-06))$optim$log.prob
+      p1 <- pp[seq_len(n())]
+      p2 <- pp[-seq_len(n())]
+      # v1
+      sum(p1) + n() * (log(n()) - log(n() + m()))
+      # v2
+      # sum(p1) + n() * (log(n() + 1) - log(n() + m()))
+      # v3
+      # sum(p1) + n() * (log(n()) - log(n() + m() - sum(exp(p2))))
+      # sum(p1) + n() * (log(n()) - log(n() + m()))
+      # sum(el_mean(par, data_f, w, list(threshold = 1e+10, maxit = 100,
+      #                                  abstol = 1e-06))$optim$log.prob[1:n()]) +
+      #   n() * (log(n()) - log(n() + m()))
     }
     # logLR with augmented data
     # logLR_aug <- function(par) {
@@ -261,7 +538,8 @@ server <- function(input, output) {
       dnorm(par, mean = posterior_mean, sd = posterior_sd, log = T)
     }
     EL_logLR <- function(par) {
-      z <- el_mean(par, x, control = list(threshold = 1e+10))$optim
+      z <- el_mean(par, x, control = list(abstol = 1e-05,
+                                          threshold = 1e+10))$optim
       if (!isTRUE(z$convergence)) {
         return(NA)
       }
