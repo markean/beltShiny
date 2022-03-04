@@ -255,7 +255,8 @@ server <- function(input, output) {
       for (i in seq_len(nrow(z2))) {
         for (j in seq_len(nrow(z2))) {
           g <- g_lm(Y, X, c(grid$x[i], grid$y[j]))
-          e_pseudo <- qnorm(seq_len(m_lm()) / (m_lm() + 1))
+          e_pseudo <- qnorm(seq_len(m_lm()) / (m_lm() + 1),
+                            sd = sigma_error_lm())
           g_pseudo <- X[rep(seq_len(n_lm()), each = m_lm()), ] * e_pseudo
           pp <- el_eval(rbind(g, g_pseudo), w1,
                         list(threshold = 1e+10))$optim$log.prob
@@ -336,7 +337,7 @@ server <- function(input, output) {
     }
     WEL_pseudo_y_logLR <- function(par) {
       g <- g_lm(Y, X, c(est[1], par))
-      e_pseudo <- qnorm(seq_len(m_lm()) / (m_lm() + 1))
+      e_pseudo <- qnorm(seq_len(m_lm()) / (m_lm() + 1), sd = sigma_error_lm())
       g_pseudo <- X[rep(seq_len(n_lm()), each = m_lm()), ] * e_pseudo
       pp <- el_eval(rbind(g, g_pseudo), w1,
                     list(threshold = 1e+10))$optim$log.prob
