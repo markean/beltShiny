@@ -1,9 +1,7 @@
 library(shiny)
 library(tidyverse)
 library(nloptr)
-library(plotly)
 library(melt)
-library(Matrix)
 library(ggplot2)
 library(ggsci)
 ui <- fluidPage(
