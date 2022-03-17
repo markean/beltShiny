@@ -1,6 +1,6 @@
 library(shiny)
 library(tidyverse)
-library(nloptr)
+# library(nloptr)
 library(melt)
 library(ggplot2)
 library(ggsci)
@@ -104,10 +104,16 @@ server <- function(input, output) {
       x_pseudo <- par + qunif(1:m() / (m() + 1), min = -IQR(x) / 2,
                               max = IQR(x) / 2)
       g <- c(x, x_pseudo) - par
-      eval_f <- function(l) mean(w * exp(l * g))
-      eval_grad_f <- function(l) mean(w * exp(l * g) * g)
-      lambda <- nloptr(x0 = 0, eval_f = eval_f, eval_grad_f = eval_grad_f,
-                       opts = opts)$solution
+
+      # eval_f <- function(l) mean(w * exp(l * g))
+      # eval_grad_f <- function(l) mean(w * exp(l * g) * g)
+      # lambda <- nloptr(x0 = 0, eval_f = eval_f, eval_grad_f = eval_grad_f,
+      #                  opts = opts)$solution
+
+      lambda_finder <- function(l) mean(w * exp(l * g) * g)
+      lambda <- uniroot(lambda_finder, extendInt = "yes",
+                        lower = -1e+10, upper = 1e+10)$root
+
       unnormalized_prob <- w * exp(lambda * g)
       log_prob <- log(unnormalized_prob) - log(sum(unnormalized_prob))
       sum(log_prob[seq_len(n())]) + n() * log(n() + strength())
@@ -200,10 +206,16 @@ server <- function(input, output) {
       x_pseudo <- par + qunif(1:m() / (m() + 1), min = -IQR(x) / 2,
                               max = IQR(x) / 2)
       g <- c(x, x_pseudo) - par
-      eval_f <- function(l) mean(w * exp(l * g))
-      eval_grad_f <- function(l) mean(w * exp(l * g) * g)
-      lambda <- nloptr(x0 = 0, eval_f = eval_f, eval_grad_f = eval_grad_f,
-                       opts = opts)$solution
+
+      # eval_f <- function(l) mean(w * exp(l * g))
+      # eval_grad_f <- function(l) mean(w * exp(l * g) * g)
+      # lambda <- nloptr(x0 = 0, eval_f = eval_f, eval_grad_f = eval_grad_f,
+      #                  opts = opts)$solution
+
+      lambda_finder <- function(l) mean(w * exp(l * g) * g)
+      lambda <- uniroot(lambda_finder, extendInt = "yes",
+                        lower = -1e+10, upper = 1e+10)$root
+
       unnormalized_prob <- w * exp(lambda * g)
       log_prob <- log(unnormalized_prob) - log(sum(unnormalized_prob))
       sum(log_prob[seq_len(n())]) + n() * log(n() + strength())
