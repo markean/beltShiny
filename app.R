@@ -135,7 +135,7 @@ server <- function(input, output) {
       WEL <- function(par) {
         # x_pseudo <- par + qunif(1:m() / (m() + 1), min = -IQR(x) / 2,
         #                         max = IQR(x) / 2)
-        x_pseudo <- par + qnorm(1:m() / (m() + 1), mean = 0, sd = sd(x))
+        x_pseudo <- par + qnorm(1:m() / (m() + 1), mean = 0, sd = 1)
         pp <- el_mean(par, c(x, x_pseudo), w, control = melt_control(th = 500))$log.prob
         p1 <- pp[seq_len(n())]
         p2 <- pp[-seq_len(n())]
@@ -150,7 +150,7 @@ server <- function(input, output) {
       WETEL <- function(par) {
         # x_pseudo <- par + qunif(1:m() / (m() + 1), min = -IQR(x) / 2,
         #                         max = IQR(x) / 2)
-        x_pseudo <- par + qnorm(1:m() / (m() + 1), mean = 0, sd = sd(x))
+        x_pseudo <- par + qnorm(1:m() / (m() + 1), mean = 0, sd = 1)
         g <- c(x, x_pseudo) - par
 
         eval_f <- function(l) mean(w * exp(l * g))
@@ -279,7 +279,7 @@ server <- function(input, output) {
     # WEL logLR
     if ("wel" %in% type()) {
       WEL <- function(par) {
-        x_pseudo <- par + qnorm(1:m() / (m() + 1), mean = 0, sd = sd(x))
+        x_pseudo <- par + qnorm(1:m() / (m() + 1), mean = 0, sd = 1)
         pp <- el_mean(par, c(x, x_pseudo), w,
                       control = melt_control(th = 500))$log.prob
         p1 <- pp[seq_len(n())]
@@ -293,7 +293,7 @@ server <- function(input, output) {
     # WETEL logLR
     if ("wetel" %in% type()) {
       WETEL <- function(par) {
-        x_pseudo <- par + qnorm(1:m() / (m() + 1), mean = 0, sd = sd(x))
+        x_pseudo <- par + qnorm(1:m() / (m() + 1), mean = 0, sd = 1)
         g <- c(x, x_pseudo) - par
         eval_f <- function(l) mean(w * exp(l * g))
         eval_grad_f <- function(l) mean(w * exp(l * g) * g)
