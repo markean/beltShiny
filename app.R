@@ -4,7 +4,7 @@ library(melt)
 library(ggplot2)
 library(ggsci)
 ui <- fluidPage(
-  titlePanel("041522"),
+  titlePanel("042222"),
   tabsetPanel(
     tabPanel("LR", fluid = TRUE,
              sidebarLayout(
@@ -29,15 +29,15 @@ ui <- fluidPage(
                    multiple = FALSE
                  ),
                  checkboxGroupInput("type", "methods",
-                                    choices = c("true" = "true",
-                                                "EL" = "el",
-                                                "ETEL" = "etel",
-                                                "WEL (w/o pseudo obs.)" = "wel",
-                                                "WETEL (w/o pseudo obs. & discard weight)" = "wetel",
-                                                "TEST (N(theta, 1) mixing added to ETEL)" = "test"),
-                                    selected = c("true", "wetel", "test"),
+                  choices = c("true" = "true",
+                              "EL" = "el",
+                              "ETEL" = "etel",
+                              "WEL (w/o pseudo obs.)" = "wel",
+                              "WETEL (w/o pseudo obs. & discard weight)" = "wetel",
+                              "TEST (N(theta, 1) added to ETEL)" = "test",
+                              "TEST2 (N(0, 1) added to ETEL)" = "test2"),
+                  selected = c("true", "test", "test2"),
                                     inline = FALSE)),
-
                mainPanel(
                  textOutput("summary1"),
                  verbatimTextOutput("code1"),
@@ -105,7 +105,7 @@ server <- function(input, output) {
     # EL logLR
     if ("el" %in% type()) {
       EL <- function(par) {
-        el_mean(par, x, control = melt_control(th = 500))$optim$logLR
+        el_mean(par, x, control = control_el(th = 500))$optim$logLR
       }
       df_EL <- data.frame(x = theta_grid, y = sapply(theta_grid, EL), type = "EL")
       dt <- rbind(dt, df_EL)
@@ -136,7 +136,7 @@ server <- function(input, output) {
         # x_pseudo <- par + qunif(1:m() / (m() + 1), min = -IQR(x) / 2,
         #                         max = IQR(x) / 2)
         x_pseudo <- par + qnorm(1:m() / (m() + 1), mean = 0, sd = 1)
-        pp <- el_mean(par, c(x, x_pseudo), w, control = melt_control(th = 500))$log.prob
+        pp <- el_mean(par, c(x, x_pseudo), w, control = control_el(th = 500))$log.prob
         p1 <- pp[seq_len(n())]
         p2 <- pp[-seq_len(n())]
         sum(p1) + n() * (log(n() + strength()))
@@ -178,19 +178,44 @@ server <- function(input, output) {
           stc() * l * exp(l^2 / 2 - l * par)
         l_test <- uniroot(test_l, extendInt = "yes", lower = -1e+10,
                           upper = 1e+10)$root
-        # const <- sum(exp(l_test * g)) +
-        #   strength() * exp(l_test^2 / 2 - l_test * par)
-        const <- sum(exp(l_test * g))
+        const <- sum(exp(l_test * g)) +
+          stc() * exp(l_test^2 / 2 - l_test * par)
         logp <- l_test * g - log(const)
         sum(logp) + n() * log(n())
+
+        # g <- x - par
+        # test_l <- function(l) sum(exp(l * g) * g) +
+        #   stc() * l * exp(l^2 / 2 - l * par)
+        # l_test <- uniroot(test_l, extendInt = "yes", lower = -1e+10,
+        #                   upper = 1e+10)$root
+        # const <- sum(exp(l_test * g)) +
+        #   stc() * exp(l_test^2 / 2 - l_test * par)
+        # logp <- l_test * g - log(const)
+        # sum(logp) + n() * log(n() + stc()) +
+        #   log(n() + stc()) * (l_test^2 / 2 - l_test * par)
       }
       df_test <- data.frame(x = theta_grid, y = sapply(theta_grid, test),
                             type = "TEST")
       dt <- rbind(dt, df_test)
     }
+    if ("test2" %in% type()) {
+      test <- function(par) {
+        g <- x - par
+        test_l <- function(l) sum(exp(l * g) * g) +
+          stc() * l * exp(l^2 / 2)
+        l_test <- uniroot(test_l, extendInt = "yes", lower = -1e+10,
+                          upper = 1e+10)$root
+        const <- sum(exp(l_test * g)) + stc() * exp(l_test^2 / 2)
+        logp <- l_test * g - log(const)
+        sum(logp) + n() * log(n())
+      }
+      df_test <- data.frame(x = theta_grid, y = sapply(theta_grid, test),
+                            type = "TEST2")
+      dt <- rbind(dt, df_test)
+    }
     # adjust factor levels for plot
     dt$type <- factor(dt$type, levels = c("true", "EL", "ETEL", "WEL", "WETEL",
-                                          "TEST"))
+                                          "TEST", "TEST2"))
     # logLR plot
     ggplot(dt,
            aes(x, y, color = type, linetype = type)) +
@@ -256,7 +281,7 @@ server <- function(input, output) {
     # EL logLR
     if ("el" %in% type()) {
       EL <- function(par) {
-        -2 * el_mean(par, x, control = melt_control(th = 500))$optim$logLR
+        -2 * el_mean(par, x, control = control_el(th = 500))$optim$logLR
       }
       df_EL <- data.frame(x = theta_grid, y = sapply(theta_grid, EL), type = "EL")
       dt <- rbind(dt, df_EL)
@@ -281,7 +306,7 @@ server <- function(input, output) {
       WEL <- function(par) {
         x_pseudo <- par + qnorm(1:m() / (m() + 1), mean = 0, sd = 1)
         pp <- el_mean(par, c(x, x_pseudo), w,
-                      control = melt_control(th = 500))$log.prob
+                      control = control_el(th = 500))$log.prob
         p1 <- pp[seq_len(n())]
         p2 <- pp[-seq_len(n())]
         - 2*(sum(p1) + n() * (log(n() + strength())))
@@ -318,14 +343,42 @@ server <- function(input, output) {
           stc() * l * exp(l^2 / 2 - l * par)
         l_test <- uniroot(test_l, extendInt = "yes", lower = -1e+10,
                           upper = 1e+10)$root
-        # const <- sum(exp(l_test * g)) +
-        #   strength() * exp(l_test^2 / 2 - l_test * par)
-        const <- sum(exp(l_test * g))
+        const <- sum(exp(l_test * g)) +
+          stc() * exp(l_test^2 / 2 - l_test * par)
         logp <- l_test * g - log(const)
+        sum(logp) + n() * log(n())
         - 2 * (sum(logp) + n() * log(n()))
+
+        # g <- x - par
+        # test_l <- function(l) sum(exp(l * g) * g) +
+        #   stc() * l * exp(l^2 / 2 - l * par)
+        # l_test <- uniroot(test_l, extendInt = "yes", lower = -1e+10,
+        #                   upper = 1e+10)$root
+        # # const <- sum(exp(l_test * g)) +
+        # #   strength() * exp(l_test^2 / 2 - l_test * par)
+        # const <- sum(exp(l_test * g))
+        # logp <- l_test * g - log(const)
+        # - 2 * (sum(logp) + n() * log(n()))
       }
       df_test <- data.frame(x = theta_grid, y = sapply(theta_grid, test),
                             type = "TEST")
+      dt <- rbind(dt, df_test)
+    }
+
+    if ("test2" %in% type()) {
+      test <- function(par) {
+        g <- x - par
+        test_l <- function(l) sum(exp(l * g) * g) +
+          stc() * l * exp(l^2 / 2)
+        l_test <- uniroot(test_l, extendInt = "yes", lower = -1e+10,
+                          upper = 1e+10)$root
+        const <- sum(exp(l_test * g)) + stc() * exp(l_test^2 / 2)
+        logp <- l_test * g - log(const)
+        # sum(logp) + n() * log(n())
+        - 2 * (sum(logp) + n() * log(n()))
+      }
+      df_test <- data.frame(x = theta_grid, y = sapply(theta_grid, test),
+                            type = "TEST2")
       dt <- rbind(dt, df_test)
     }
 
@@ -339,7 +392,7 @@ server <- function(input, output) {
 
     # adjust factor levels for plot
     dt$type <- factor(dt$type, levels = c("true", "EL", "ETEL", "WEL", "WETEL",
-                                          "TEST"))
+                                          "TEST", "TEST2"))
     dt <- dt |> group_by(type) |> filter(y < cutoff) |>
       slice(which.min(x), which.max(x)) |> select(type, x) |>
       mutate(y = max(x)) |> slice(1)
